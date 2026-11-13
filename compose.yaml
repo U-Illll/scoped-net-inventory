@@ -1,7 +1,7 @@
 services:
-  # A throwaway HTTP service standing in for "a host you own". It is built from
-  # this repository (no third-party images), so the demo needs nothing beyond
-  # the official alpine/golang bases.
+  # ---------------------------------------------------------------------------
+  # Demo 1: scope-gated TCP inventory (the original default demo).
+  # ---------------------------------------------------------------------------
   mock-asset:
     build: .
     image: scoped-netinv:local
@@ -9,21 +9,67 @@ services:
     command: ["-listen", ":8080"]
     networks: [lab]
 
-  # The inventory itself. Its default CMD comes from the Dockerfile, so plain
-  # `docker compose run --rm inventory` is enough.
   inventory:
     build: .
     image: scoped-netinv:local
     depends_on: [mock-asset]
     networks: [lab]
-    # Write the report as your own user so ./out stays readable on the host.
     user: "${UID:-1000}:${GID:-1000}"
     volumes:
       - ./examples/scope.demo.json:/work/scope.json:ro
       - ./out:/work/out
 
+  # ---------------------------------------------------------------------------
+  # Demo 2: lab C2 pair (RESEARCH USE ONLY — see DISCLAIMER.md).
+  #
+  # Both ends run on an internal network with no route off-host, both require
+  # -lab, and the implant's scan task is limited to the hosts in its scope file.
+  # Enable with:
+  #   docker compose --profile c2 up c2-server c2-implant
+  # ---------------------------------------------------------------------------
+  c2-server:
+    build: .
+    image: scoped-netinv:local
+    profiles: ["c2"]
+    entrypoint: ["/usr/local/bin/c2server"]
+    command:
+      - "-lab"
+      - "-listen"
+      - "0.0.0.0:8443"
+      - "-secret-file"
+      - "/work/c2/secret.demo"
+      - "-operator-token"
+      - "lab-operator-token"
+      - "-sleep"
+      - "2"
+    networks: [lab]
+    volumes:
+      - ./examples/c2/secret.demo:/work/c2/secret.demo:ro
+
+  c2-implant:
+    build: .
+    image: scoped-netinv:local
+    profiles: ["c2"]
+    entrypoint: ["/usr/local/bin/c2implant"]
+    command:
+      - "-lab"
+      - "-server"
+      - "http://c2-server:8443"
+      - "-secret-file"
+      - "/work/c2/secret.demo"
+      - "-scope"
+      - "/work/scope.json"
+      - "-id"
+      - "lab-implant-1"
+    depends_on: [c2-server, mock-asset]
+    networks: [lab]
+    volumes:
+      - ./examples/c2/secret.demo:/work/c2/secret.demo:ro
+      - ./examples/scope.demo.json:/work/scope.json:ro
+
 networks:
-  # Internal network: Docker gives it no route off-host, so a demo scan cannot
-  # reach anything except the mock container above.
+  # Internal network: Docker gives it no route off-host, so nothing in the lab
+  # can reach the host or the internet. This is what makes the demos safe to
+  # run: the C2 pair can only talk to each other and to the mock container.
   lab:
     internal: true

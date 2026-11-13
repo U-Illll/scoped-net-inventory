@@ -90,6 +90,57 @@ Because the image is built locally, the demo pulls nothing beyond the official
 Swap `examples/scope.demo.json` for your own scope file and the `mock-asset`
 service for real endpoints; nothing else needs to change.
 
+## Lab C2 module (`c2/`)
+
+> **Research and educational use only.** Read [DISCLAIMER.md](DISCLAIMER.md)
+> before running anything in this section. Both binaries refuse to start without
+> `-lab`, which is your explicit acknowledgement of that document.
+
+`c2/` is a small command-and-control pair for studying tasking protocol design:
+a server, an implant, and a signed JSON wire format between them. It exists so
+the scan task from the inventory above can be driven remotely, and so the
+enrolment/tasking/result path can be read and criticised.
+
+```bash
+docker compose --profile c2 up -d c2-server c2-implant mock-asset
+docker compose --profile c2 exec c2-server sh -c \
+  'wget -qO- --header="X-Operator-Token: lab-operator-token" \
+   http://127.0.0.1:8443/operator/implants'
+```
+
+Queueing a scan task through the operator API:
+
+```bash
+curl -s -X POST http://127.0.0.1:8443/operator/task \
+  -H 'X-Operator-Token: lab-operator-token' \
+  -H 'Content-Type: application/json' \
+  -d '{"implant_id":"lab-implant-1","kind":"scan","args":{"hosts":"mock-asset"}}'
+```
+
+The implant then reports something like:
+
+```
+mock-asset:8080 open=true ms=0
+mock-asset:8081 open=false ms=0
+total_hosts=1 open=1
+```
+
+### What it deliberately does not do
+
+| Guard rail | Effect |
+|---|---|
+| `-lab` required | `c2server`/`c2implant` exit 2 without it. |
+| Shared secret ≥ 16 bytes | Rejected at construction, not at runtime. |
+| HMAC + timestamp on every request | Unsigned, tampered or replayed requests get `401`. |
+| Task-kind allowlist | Only `ping`, `sysinfo`, `scan`, `sleep`, `exit`, `exec`. `shell`, `persist`, `download` etc. are rejected at the server **and** again at the implant. |
+| No shell for `exec` | Absolute-path binary from an explicit argv, no interpolation, and only if listed in `-exec-allow`. Asking for `/bin/sh` is refused. |
+| Scan scope is a hard gate | The implant reuses `scope`; tasking `192.0.2.1` when the scope file only authorises `127.0.0.1` returns `refusing out-of-scope host`. |
+| No persistence / no self-update | There is no install routine, watchdog or upgrade path in the code. |
+| Server is memory-only | Restart clears implants, queues and results. |
+
+Both ends run on an `internal: true` Docker network, so the lab pair has no
+route to the host or the internet.
+
 ## Tests
 
 ```bash
@@ -97,8 +148,10 @@ go test ./...
 ```
 
 The suite covers fail-closed behaviour on empty/invalid scopes, out-of-scope
-refusal, the host-count cap, and an open/closed port pair against a local
-listener.
+refusal, the host-count cap, an open/closed port pair against a local listener,
+plus the C2 guard rails: signature and replay rejection, the task-kind
+allowlist on both sides, exec allowlist enforcement, and the one-time task
+delivery cap.
 
 ## License
 
