@@ -1,0 +1,5 @@
+# Build output: the binary at the repo root only. Anchored so it does not
+# match the cmd/netinv source directory.
+/netinv
+/out/
+*.test

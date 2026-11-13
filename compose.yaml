@@ -1,0 +1,29 @@
+services:
+  # A throwaway HTTP service standing in for "a host you own". It is built from
+  # this repository (no third-party images), so the demo needs nothing beyond
+  # the official alpine/golang bases.
+  mock-asset:
+    build: .
+    image: scoped-netinv:local
+    entrypoint: ["/usr/local/bin/mock"]
+    command: ["-listen", ":8080"]
+    networks: [lab]
+
+  # The inventory itself. Its default CMD comes from the Dockerfile, so plain
+  # `docker compose run --rm inventory` is enough.
+  inventory:
+    build: .
+    image: scoped-netinv:local
+    depends_on: [mock-asset]
+    networks: [lab]
+    # Write the report as your own user so ./out stays readable on the host.
+    user: "${UID:-1000}:${GID:-1000}"
+    volumes:
+      - ./examples/scope.demo.json:/work/scope.json:ro
+      - ./out:/work/out
+
+networks:
+  # Internal network: Docker gives it no route off-host, so a demo scan cannot
+  # reach anything except the mock container above.
+  lab:
+    internal: true

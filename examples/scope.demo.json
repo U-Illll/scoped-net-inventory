@@ -1,0 +1,6 @@
+{
+  "hosts": ["mock-asset"],
+  "networks": [],
+  "ports": [8080, 8081],
+  "note": "Docker demo: the name resolves only inside the internal compose network"
+}
